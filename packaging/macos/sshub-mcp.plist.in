@@ -6,7 +6,7 @@
 	<string>sshub-mcp</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>/opt/homebrew/bin/sshub-mcp</string>
+		<string>__BIN_PATH__</string>
 	</array>
 	<key>EnvironmentVariables</key>
 	<dict>
