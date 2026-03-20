@@ -113,30 +113,32 @@ Host keys are checked against **`$HOME/.ssh/known_hosts`** (with `HOME` unset, G
 - Passwords and DB file are only as safe as the host filesystem and process environment.
 - Run sshub-mcp in the same environment as your SSH tooling if you rely on **agent** or **`~/.ssh`** keys.
 
+## Install (one command)
+
+```bash
+curl -sL https://raw.githubusercontent.com/vfaddey/sshub-mcp/main/install.sh | bash
+```
+
+Скачивает последний релиз, ставит бинарник в `/usr/bin` (Linux) или `/opt/homebrew/bin`/`/usr/local/bin` (macOS), устанавливает systemd/launchd unit и **сразу запускает** сервис. Ничего не распаковывается в текущую директорию.
+
+Версия по умолчанию — последний релиз. Конкретная версия:
+
+```bash
+curl -sL https://raw.githubusercontent.com/vfaddey/sshub-mcp/main/install.sh | bash -s -- v0.0.2
+```
+
 ## Releases & packaging
 
 CI runs on **GitHub Actions** (`.github/workflows/ci.yml`). Pushing a tag `v*` builds tarballs and `.deb` packages and creates a **GitHub Release** with those assets (`.github/workflows/release.yml`).
 
-### Manual install (tarball from GitHub Release)
+### Manual install (tarball)
 
-Each tarball (`sshub-mcp_linux_amd64.tar.gz`, `sshub-mcp_darwin_arm64.tar.gz`, etc.) contains:
-
-- `sshub-mcp` — binary
-- `sshub-mcp.service` (Linux) or `sshub-mcp.plist` (macOS)
-- `install.sh` — copies binary to `/usr/bin` (Linux) or `/opt/homebrew/bin`/`/usr/local/bin` (macOS), installs systemd/launchd unit
+Если нужна ручная установка из архива:
 
 ```bash
-tar xzf sshub-mcp_linux_amd64.tar.gz
+curl -sL https://github.com/vfaddey/sshub-mcp/releases/download/v0.0.2/sshub-mcp_linux_amd64.tar.gz | tar xz
 ./install.sh
 systemctl --user enable --now sshub-mcp
-```
-
-macOS:
-
-```bash
-tar xzf sshub-mcp_darwin_arm64.tar.gz
-./install.sh
-launchctl load ~/Library/LaunchAgents/sshub-mcp.plist
 ```
 
 ### Debian package
@@ -151,6 +153,41 @@ systemctl --user enable --now sshub-mcp
 
 Use `packaging/brew/sshub-mcp.rb` as a template in your tap; point `url`/`sha256` at files from the GitHub release. The formula installs to Homebrew’s prefix and provides `brew services start sshub-mcp`.
 
-## License
+## Uninstall
 
-Specify your license in a `LICENSE` file in the repository root.
+### Linux (install.sh / tarball)
+
+```bash
+systemctl --user disable --now sshub-mcp
+sudo rm /usr/bin/sshub-mcp
+sudo rm /lib/systemd/user/sshub-mcp.service
+systemctl --user daemon-reload
+rm -rf ~/.local/share/sshub-mcp/
+```
+
+Если `XDG_DATA_HOME` задан: `rm -rf "$XDG_DATA_HOME/sshub-mcp/"`.
+
+### macOS (install.sh / tarball)
+
+```bash
+launchctl unload ~/Library/LaunchAgents/sshub-mcp.plist
+sudo rm /opt/homebrew/bin/sshub-mcp   # или /usr/local/bin/sshub-mcp
+rm ~/Library/LaunchAgents/sshub-mcp.plist
+rm -rf ~/Library/Application\ Support/sshub-mcp/
+```
+
+### Debian package
+
+```bash
+systemctl --user disable --now sshub-mcp
+sudo apt remove sshub-mcp
+rm -rf ~/.local/share/sshub-mcp/
+```
+
+### Homebrew
+
+```bash
+brew services stop sshub-mcp
+brew uninstall sshub-mcp
+rm -rf ~/Library/Application\ Support/sshub-mcp/
+```
