@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>sshub-mcp</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+  <div class="noise" aria-hidden="true"></div>
+  <header class="top">
+    <div class="brand">
+      <span class="brand-mark">◇</span>
+      <div>
+        <h1>sshub-mcp</h1>
+        <p class="tagline">проекты · хосты · токены для агента</p>
+      </div>
+    </div>
+    <div class="pill">локальная админка</div>
+  </header>
+
+  <main class="grid">
+    <section class="panel" id="panel-projects">
+      <div class="panel-head">
+        <h2>Проекты</h2>
+        <button type="button" class="btn ghost" id="btn-refresh-projects">обновить</button>
+      </div>
+      <form id="form-project" class="inline-form">
+        <input type="text" name="name" placeholder="название проекта" required autocomplete="off">
+        <button type="submit" class="btn primary">добавить</button>
+      </form>
+      <ul id="list-projects" class="list"></ul>
+    </section>
+
+    <section class="panel" id="panel-hosts">
+      <div class="panel-head">
+        <h2>Хосты</h2>
+        <select id="select-project" class="select">
+          <option value="">— выберите проект —</option>
+        </select>
+      </div>
+      <form id="form-host" class="stack-form hidden">
+        <div class="row2">
+          <label>имя<input type="text" name="name" required autocomplete="off"></label>
+          <label>адрес<input type="text" name="address" required placeholder="host или IP"></label>
+        </div>
+        <div class="row2">
+          <label>порт<input type="number" name="port" value="22" min="1" max="65535"></label>
+          <label>пользователь<input type="text" name="username" required autocomplete="off"></label>
+        </div>
+        <label>auth
+          <select name="auth_kind" class="select full">
+            <option value="none">none</option>
+            <option value="password">password</option>
+            <option value="agent">agent (SSH_AUTH_SOCK)</option>
+          </select>
+        </label>
+        <label class="hidden" id="wrap-password">пароль<input type="password" name="password" autocomplete="new-password"></label>
+        <button type="submit" class="btn primary">добавить хост</button>
+      </form>
+      <ul id="list-hosts" class="list"></ul>
+    </section>
+
+    <section class="panel panel-wide" id="panel-tokens">
+      <div class="panel-head">
+        <h2>API-токен</h2>
+      </div>
+      <p class="hint">Токен показывается один раз. Сохраните его для клиента MCP (Bearer).</p>
+      <form id="form-token" class="stack-form">
+        <label>метка<input type="text" name="label" required placeholder="например, cursor-home"></label>
+        <fieldset class="checks">
+          <legend>доступные проекты</legend>
+          <div id="token-project-checks" class="check-grid"></div>
+        </fieldset>
+        <button type="submit" class="btn accent">выпустить токен</button>
+      </form>
+      <div id="token-result" class="token-box hidden" tabindex="-1">
+        <span class="token-label">секрет (скопируйте сейчас)</span>
+        <code id="token-value"></code>
+        <button type="button" class="btn ghost" id="btn-copy-token">копировать</button>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast hidden" role="status"></div>
+  <script src="assets/app.js" defer></script>
+</body>
+</html>

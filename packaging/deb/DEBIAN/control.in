@@ -1,0 +1,13 @@
+Package: sshub-mcp
+Version: @VERSION@
+Section: net
+Priority: optional
+Architecture: @ARCH@
+Maintainer: SSH MCP <https://github.com/OWNER/REPO>
+Homepage: https://github.com/OWNER/REPO
+Depends: libc6 (>= 2.31)
+Description: Local MCP server for SSH remote administration
+ Model Context Protocol (MCP) HTTP server: projects, SSH hosts,
+ and tools to run commands over SSH. Listens on 127.0.0.1:8787 by default.
+ Data: ~/.local/share/sshub-mcp/ on Linux. After install:
+ systemctl --user enable --now sshub-mcp

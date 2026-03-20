@@ -1,0 +1,41 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build tarballs (linux/darwin × amd64/arm64)
+        run: bash packaging/scripts/build-release-archives.sh
+
+      - name: Install dpkg-deb
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends dpkg-dev
+
+      - name: Build .deb packages
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          VER="${VERSION#v}"
+          bash packaging/scripts/build-deb.sh "$VER" amd64 dist/sshub-mcp_linux_amd64
+          bash packaging/scripts/build-deb.sh "$VER" arm64 dist/sshub-mcp_linux_arm64
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/*.deb
+          generate_release_notes: true

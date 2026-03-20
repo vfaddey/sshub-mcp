@@ -1,0 +1,14 @@
+[Unit]
+Description=sshub-mcp — local Model Context Protocol server for SSH
+Documentation=https://modelcontextprotocol.io/
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/sshub-mcp
+Restart=on-failure
+RestartSec=5
+# Safe default: localhost only. Override in ~/.config/systemd/user/sshub-mcp.service.d/override.conf
+Environment=SSHUB_MCP_HTTP_ADDR=127.0.0.1:8787
+
+[Install]
+WantedBy=default.target
