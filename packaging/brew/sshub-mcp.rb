@@ -25,7 +25,7 @@ class SshubMcp < Formula
   end
 
   def install
-    bin.install Dir["sshub-mcp_*"].first => "sshub-mcp"
+    bin.install "sshub-mcp"
   end
 
   service do

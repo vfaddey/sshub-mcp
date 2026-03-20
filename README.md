@@ -117,16 +117,39 @@ Host keys are checked against **`$HOME/.ssh/known_hosts`** (with `HOME` unset, G
 
 CI runs on **GitHub Actions** (`.github/workflows/ci.yml`). Pushing a tag `v*` builds tarballs and `.deb` packages and creates a **GitHub Release** with those assets (`.github/workflows/release.yml`).
 
-Local equivalents:
+### Manual install (tarball from GitHub Release)
+
+Each tarball (`sshub-mcp_linux_amd64.tar.gz`, `sshub-mcp_darwin_arm64.tar.gz`, etc.) contains:
+
+- `sshub-mcp` — binary
+- `sshub-mcp.service` (Linux) or `sshub-mcp.plist` (macOS)
+- `install.sh` — copies binary to `/usr/bin` (Linux) or `/opt/homebrew/bin`/`/usr/local/bin` (macOS), installs systemd/launchd unit
 
 ```bash
-make archives          # dist/*.tar.gz + binaries
-make deb-all VERSION=1.2.3   # needs dpkg-deb (Linux)
+tar xzf sshub-mcp_linux_amd64.tar.gz
+./install.sh
+systemctl --user enable --now sshub-mcp
 ```
 
-Debian package installs `sshub-mcp` to `/usr/bin` and a **systemd user** unit — enable with `systemctl --user enable --now sshub-mcp`.
+macOS:
 
-Homebrew: use `packaging/brew/sshub-mcp.rb` as a template in your tap; point `url`/`sha256` at files from the GitHub release.
+```bash
+tar xzf sshub-mcp_darwin_arm64.tar.gz
+./install.sh
+launchctl load ~/Library/LaunchAgents/sshub-mcp.plist
+```
+
+### Debian package
+
+`.deb` installs binary to `/usr/bin/sshub-mcp` and systemd user unit. After `apt install sshub-mcp`:
+
+```bash
+systemctl --user enable --now sshub-mcp
+```
+
+### Homebrew
+
+Use `packaging/brew/sshub-mcp.rb` as a template in your tap; point `url`/`sha256` at files from the GitHub release. The formula installs to Homebrew’s prefix and provides `brew services start sshub-mcp`.
 
 ## License
 
