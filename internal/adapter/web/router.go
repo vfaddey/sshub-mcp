@@ -8,6 +8,7 @@ import (
 	"mime"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"sshub-mcp/internal/domain"
@@ -37,9 +38,13 @@ func NewRouter(admin ports.Admin) http.Handler {
 	a := &api{admin: admin}
 	mux.HandleFunc("GET /api/projects", a.listProjects)
 	mux.HandleFunc("POST /api/projects", a.createProject)
+	mux.HandleFunc("DELETE /api/projects/{id}", a.deleteProject)
 	mux.HandleFunc("GET /api/projects/{id}/hosts", a.listHosts)
 	mux.HandleFunc("POST /api/projects/{id}/hosts", a.createHost)
+	mux.HandleFunc("DELETE /api/projects/{id}/hosts/{hostId}", a.deleteHost)
+	mux.HandleFunc("GET /api/tokens", a.listTokens)
 	mux.HandleFunc("POST /api/tokens", a.issueToken)
+	mux.HandleFunc("DELETE /api/tokens/{id}", a.deleteToken)
 	return mux
 }
 
@@ -77,6 +82,31 @@ func (a *api) listProjects(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, list)
 }
 
+func (a *api) listTokens(w http.ResponseWriter, r *http.Request) {
+	list, err := a.admin.ListTokensAll(r.Context())
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	if list == nil {
+		list = []domain.APIToken{}
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+func (a *api) deleteToken(w http.ResponseWriter, r *http.Request) {
+	tid, err := pathInt64(r, "id")
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	if err := a.admin.DeleteToken(r.Context(), tid); err != nil {
+		writeErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 type createProjectBody struct {
 	Name string `json:"name"`
 }
@@ -95,7 +125,11 @@ func (a *api) createProject(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *api) listHosts(w http.ResponseWriter, r *http.Request) {
-	pid := r.PathValue("id")
+	pid, err := pathInt64(r, "id")
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
 	list, err := a.admin.ListHostsByProject(r.Context(), pid)
 	if err != nil {
 		writeErr(w, err)
@@ -117,7 +151,11 @@ type createHostBody struct {
 }
 
 func (a *api) createHost(w http.ResponseWriter, r *http.Request) {
-	pid := r.PathValue("id")
+	pid, err := pathInt64(r, "id")
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
 	var body createHostBody
 	if !readJSON(w, r, &body) {
 		return
@@ -133,9 +171,40 @@ func (a *api) createHost(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, h)
 }
 
+func (a *api) deleteProject(w http.ResponseWriter, r *http.Request) {
+	pid, err := pathInt64(r, "id")
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	if err := a.admin.DeleteProject(r.Context(), pid); err != nil {
+		writeErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *api) deleteHost(w http.ResponseWriter, r *http.Request) {
+	pid, err := pathInt64(r, "id")
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	hid, err := pathInt64(r, "hostId")
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	if err := a.admin.DeleteHost(r.Context(), pid, hid); err != nil {
+		writeErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 type issueTokenBody struct {
-	Label      string   `json:"label"`
-	ProjectIDs []string `json:"project_ids"`
+	Label      string  `json:"label"`
+	ProjectIDs []int64 `json:"project_ids"`
 }
 
 type issueTokenResponse struct {
@@ -168,6 +237,18 @@ func readJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 		return false
 	}
 	return true
+}
+
+func pathInt64(r *http.Request, key string) (int64, error) {
+	raw := strings.TrimSpace(r.PathValue(key))
+	if raw == "" {
+		return 0, domain.ErrValidation
+	}
+	id, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || id <= 0 {
+		return 0, domain.ErrValidation
+	}
+	return id, nil
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

@@ -18,9 +18,15 @@ type HostCreate struct {
 type Admin interface {
 	ListProjectsAll(ctx context.Context) ([]domain.Project, error)
 	CreateProject(ctx context.Context, name string) (domain.Project, error)
-	ListHostsByProject(ctx context.Context, projectID string) ([]domain.Host, error)
-	CreateHost(ctx context.Context, projectID string, in HostCreate) (domain.Host, error)
-	IssueToken(ctx context.Context, label string, projectIDs []string) (plainSecret string, t domain.APIToken, err error)
+	DeleteProject(ctx context.Context, projectID int64) error
+
+	ListHostsByProject(ctx context.Context, projectID int64) ([]domain.Host, error)
+	CreateHost(ctx context.Context, projectID int64, in HostCreate) (domain.Host, error)
+	DeleteHost(ctx context.Context, projectID, hostID int64) error
+
+	ListTokensAll(ctx context.Context) ([]domain.APIToken, error)
+	IssueToken(ctx context.Context, label string, projectIDs []int64) (plainSecret string, t domain.APIToken, err error)
+	DeleteToken(ctx context.Context, tokenID int64) error
 }
 
 type TokenResolver interface {

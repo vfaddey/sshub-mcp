@@ -1,15 +1,36 @@
 # sshub-mcp
 
-HTTP [Model Context Protocol](https://modelcontextprotocol.io/) server: projects, SSH targets, API tokens, and tools to open SSH sessions and run commands. Data is stored in **SQLite**. Intended to run **locally**.
+Local HTTP **Model Context Protocol (MCP)** server for SSH automation:
+- Projects
+- SSH hosts (targets)
+- API tokens
+- MCP tools to open SSH sessions and run commands
 
-Private SSH keys are **not** stored in the database. Authentication uses optional **password** (DB), **ssh-agent** (`SSH_AUTH_SOCK`), or default keys under **`~/.ssh`** (`id_ed25519`, `id_ecdsa`, `id_rsa`) for `auth_kind: none`.
+Data is stored in **SQLite**. Intended to run **locally**.
 
-## Requirements
+## Install
 
-- **Go 1.25+**
-- Remote hosts must be reachable from the machine running sshub-mcp.
+### One-command install (recommended)
 
-## Build & run
+```bash
+curl -sL https://raw.githubusercontent.com/vfaddey/sshub-mcp/main/install.sh | bash
+```
+
+What it does:
+- downloads the latest release
+- installs the binary into your `PATH` (`/usr/bin` on Linux; `/opt/homebrew/bin` or `/usr/local/bin` on macOS)
+- installs a user service (systemd/launchd)
+- starts it immediately
+
+Install a specific version:
+
+```bash
+curl -sL https://raw.githubusercontent.com/vfaddey/sshub-mcp/main/install.sh | bash -s -- v0.0.2
+```
+
+### Build and run from source
+
+Requirements: **Go 1.25+**
 
 ```bash
 go build -o sshub-mcp ./cmd/sshub-mcp
@@ -22,52 +43,53 @@ Or:
 go run ./cmd/sshub-mcp
 ```
 
-Default listen address: **`127.0.0.1:8787`** (localhost only).
+Default listen address: `127.0.0.1:8787`.
+
+## Quick start
+
+1. Start the server.
+2. Open Admin UI: `http://127.0.0.1:8787/admin/`
+3. Create a project and a host.
+4. Issue a token.
+5. Configure your MCP client to call:
+   - MCP endpoint: `http://127.0.0.1:8787/mcp`
+   - Header: `Authorization: Bearer <token>`
+
+Important: the Admin UI has **no authentication**. Keep it on localhost.
+
+## Admin UI
+
+![Admin UI screenshot](./docs/images/admin.png)
+
+## Endpoints
+
+- `/mcp` — MCP (Streamable HTTP), requires `Authorization: Bearer <token>`
+- `/admin` — Admin UI + JSON API (no auth)
+
+## MCP tools
+
+All tool calls are scoped to the projects attached to the token.
+
+- `list_projects` — list accessible projects
+- `list_hosts` — list hosts for a `project_id`
+- `ssh_create_session` — open SSH session (`project_id`, `host_id`) → `session_id`
+- `ssh_exec` — execute a command (`session_id`, `command`)
+- `ssh_close_session` — close a session (`session_id`)
+- `ssh_list_sessions` — list active sessions for a `project_id`
 
 ## Configuration
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `SSHUB_MCP_HTTP_ADDR` | `127.0.0.1:8787` | Listen address |
-| `SSHUB_MCP_DB` | platform path (see below) | SQLite database file |
-| `SSHUB_MCP_SESSION_TTL` | `10m` | TTL for logical SSH sessions (Go duration) |
+| `SSHUB_MCP_DB` | platform default | SQLite database file |
+| `SSHUB_MCP_SESSION_TTL` | `10m` | SSH session TTL (Go duration) |
 
-The same settings still work under the legacy names `SSH_MCP_HTTP_ADDR`, `SSH_MCP_DB`, `SSH_MCP_SESSION_TTL` if the `SSHUB_MCP_*` variable is not set.
+Legacy names are supported if `SSHUB_MCP_*` is not set: `SSH_MCP_HTTP_ADDR`, `SSH_MCP_DB`, `SSH_MCP_SESSION_TTL`.
 
-Default database path if neither `SSHUB_MCP_DB` nor `SSH_MCP_DB` is set:
+## Cursor (`mcp.json`) example
 
-- **Linux / *BSD:** `$XDG_DATA_HOME/sshub-mcp/sshub-mcp.db` or `~/.local/share/sshub-mcp/sshub-mcp.db`
-- **macOS:** `~/Library/Application Support/sshub-mcp/sshub-mcp.db`
-
-The data directory is created automatically on first start.
-
-HTTP routes (defaults):
-
-| Path | Purpose |
-|------|---------|
-| `/mcp` | MCP (Streamable HTTP), **requires** `Authorization: Bearer <token>` |
-| `/admin` | Web UI + JSON API (**no authentication**) |
-
-Both `/mcp` and `/mcp/` are accepted for MCP.
-
-## MCP tools
-
-All tool calls are scoped by the token’s attached projects.
-
-| Tool | Description |
-|------|-------------|
-| `list_projects` | List allowed projects |
-| `list_hosts` | List hosts for a `project_id` |
-| `ssh_create_session` | Open SSH session (`project_id`, `host_id`); returns `session_id` |
-| `ssh_exec` | Run a command in that session (`session_id`, `command`) |
-| `ssh_close_session` | Close session (`session_id`) |
-| `ssh_list_sessions` | List open sessions for a `project_id` |
-
-Within one `session_id`, **`ssh_exec` keeps shell-like state** between calls: working directory (via tracked `pwd -P`) and prior `export …` lines are replayed before each command. Each exec still uses a new remote `bash -s` script; this is not a full interactive PTY.
-
-## Cursor / `mcp.json`
-
-Example (global: `~/.cursor/mcp.json` or project `.cursor/mcp.json`):
+Global `~/.cursor/mcp.json` or project `.cursor/mcp.json`:
 
 ```json
 {
@@ -82,76 +104,32 @@ Example (global: `~/.cursor/mcp.json` or project `.cursor/mcp.json`):
 }
 ```
 
-Create a token in the admin UI (`POST /admin/api/tokens`) and set `SSHUB_MCP_TOKEN` (or any env name you reference in `mcp.json`) to the **full** secret string (shown once). Restart the editor after changing `mcp.json`.
+Create a token in the Admin UI and export it as `SSHUB_MCP_TOKEN`. Restart the editor after changing `mcp.json`.
 
-## Admin HTTP API
+## Admin HTTP API (brief)
 
-Mounted under **`/admin`** (e.g. `http://127.0.0.1:8787/admin/`). JSON bodies, `Content-Type: application/json`.
+Mounted under `/admin` (e.g. `http://127.0.0.1:8787/admin/`).
+JSON bodies, `Content-Type: application/json`.
 
-| Method | Path | Body / notes |
-|--------|------|--------------|
-| `GET` | `/api/projects` | List projects |
-| `POST` | `/api/projects` | `{"name":"..."}` |
-| `GET` | `/api/projects/{id}/hosts` | List hosts |
-| `POST` | `/api/projects/{id}/hosts` | `name`, `address`, `port`, `username`, `auth_kind`, optional `password` |
-| `POST` | `/api/tokens` | `label`, `project_ids` — response includes `token` **once** |
+- `GET /api/projects` — list projects  
+- `POST /api/projects` — create project (`{"name":"..."}`)  
+- `DELETE /api/projects/{id}` — delete project  
+
+- `GET /api/projects/{id}/hosts` — list hosts  
+- `POST /api/projects/{id}/hosts` — create host  
+- `DELETE /api/projects/{id}/hosts/{hostId}` — delete host  
+
+- `POST /api/tokens` — issue token (`label`, `project_ids`), returns the secret **once**
 
 `auth_kind`: `none` | `password` | `agent`.
 
-## Host authentication
+## Host authentication (brief)
 
-- **`password`**: password stored in SQLite (local trust model).
-- **`agent`**: requires a **valid** `SSH_AUTH_SOCK` (socket must exist).
-- **`none`**: uses agent if `SSH_AUTH_SOCK` is usable; otherwise tries **`~/.ssh/id_ed25519`**, **`id_ecdsa`**, **`id_rsa`** (unencrypted keys only; encrypted keys are skipped).
+Private SSH keys are **not** stored in the database.
 
-Host keys are checked against **`$HOME/.ssh/known_hosts`** (with `HOME` unset, Go’s user home). If the file is missing or cannot be loaded, verification falls back to **insecure** accept (see code).
-
-## Security notes
-
-- **Admin has no login** — bind to `127.0.0.1` (default) or do not expose the port to untrusted networks.
-- MCP is gated only by **Bearer tokens** tied to project lists.
-- Passwords and DB file are only as safe as the host filesystem and process environment.
-- Run sshub-mcp in the same environment as your SSH tooling if you rely on **agent** or **`~/.ssh`** keys.
-
-## Install (one command)
-
-```bash
-curl -sL https://raw.githubusercontent.com/vfaddey/sshub-mcp/main/install.sh | bash
-```
-
-Скачивает последний релиз, ставит бинарник в `/usr/bin` (Linux) или `/opt/homebrew/bin`/`/usr/local/bin` (macOS), устанавливает systemd/launchd unit и **сразу запускает** сервис. Ничего не распаковывается в текущую директорию.
-
-Версия по умолчанию — последний релиз. Конкретная версия:
-
-```bash
-curl -sL https://raw.githubusercontent.com/vfaddey/sshub-mcp/main/install.sh | bash -s -- v0.0.2
-```
-
-## Releases & packaging
-
-CI runs on **GitHub Actions** (`.github/workflows/ci.yml`). Pushing a tag `v*` builds tarballs and `.deb` packages and creates a **GitHub Release** with those assets (`.github/workflows/release.yml`).
-
-### Manual install (tarball)
-
-Если нужна ручная установка из архива:
-
-```bash
-curl -sL https://github.com/vfaddey/sshub-mcp/releases/download/v0.0.2/sshub-mcp_linux_amd64.tar.gz | tar xz
-./install.sh
-systemctl --user enable --now sshub-mcp
-```
-
-### Debian package
-
-`.deb` installs binary to `/usr/bin/sshub-mcp` and systemd user unit. After `apt install sshub-mcp`:
-
-```bash
-systemctl --user enable --now sshub-mcp
-```
-
-### Homebrew
-
-Use `packaging/brew/sshub-mcp.rb` as a template in your tap; point `url`/`sha256` at files from the GitHub release. The formula installs to Homebrew’s prefix and provides `brew services start sshub-mcp`.
+- `password`: password stored in SQLite
+- `agent`: uses `SSH_AUTH_SOCK`
+- `none`: uses agent if available; otherwise tries `~/.ssh/id_ed25519`, `id_ecdsa`, `id_rsa`
 
 ## Uninstall
 
@@ -165,13 +143,13 @@ systemctl --user daemon-reload
 rm -rf ~/.local/share/sshub-mcp/
 ```
 
-Если `XDG_DATA_HOME` задан: `rm -rf "$XDG_DATA_HOME/sshub-mcp/"`.
+If `XDG_DATA_HOME` is set: `rm -rf "$XDG_DATA_HOME/sshub-mcp/"`.
 
 ### macOS (install.sh / tarball)
 
 ```bash
 launchctl unload ~/Library/LaunchAgents/sshub-mcp.plist
-sudo rm /opt/homebrew/bin/sshub-mcp   # или /usr/local/bin/sshub-mcp
+sudo rm /opt/homebrew/bin/sshub-mcp   # or /usr/local/bin/sshub-mcp
 rm ~/Library/LaunchAgents/sshub-mcp.plist
 rm -rf ~/Library/Application\ Support/sshub-mcp/
 ```
@@ -190,4 +168,14 @@ rm -rf ~/.local/share/sshub-mcp/
 brew services stop sshub-mcp
 brew uninstall sshub-mcp
 rm -rf ~/Library/Application\ Support/sshub-mcp/
+```
+
+## Contributing
+
+PRs are welcome (bug fixes, tool improvements, Admin UI/UX, docs).
+
+Before opening a PR:
+
+```bash
+go test ./...
 ```

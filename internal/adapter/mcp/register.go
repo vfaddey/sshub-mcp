@@ -69,7 +69,7 @@ func listProjects(t *ToolSet) mcp.ToolHandlerFor[struct{}, any] {
 }
 
 type listHostsIn struct {
-	ProjectID string `json:"project_id" jsonschema:"ID of the project (from list_projects)"`
+	ProjectID int64 `json:"project_id" jsonschema:"Numeric ID of the project (from list_projects)"`
 }
 
 func listHosts(t *ToolSet) mcp.ToolHandlerFor[listHostsIn, any] {
@@ -83,8 +83,8 @@ func listHosts(t *ToolSet) mcp.ToolHandlerFor[listHostsIn, any] {
 }
 
 type createSessionIn struct {
-	ProjectID string `json:"project_id" jsonschema:"ID of the project"`
-	HostID    string `json:"host_id" jsonschema:"ID of the host (from list_hosts)"`
+	ProjectID int64 `json:"project_id" jsonschema:"Numeric ID of the project"`
+	HostID    int64 `json:"host_id" jsonschema:"Numeric ID of the host (from list_hosts)"`
 }
 
 func createSession(t *ToolSet) mcp.ToolHandlerFor[createSessionIn, any] {
@@ -126,7 +126,7 @@ func closeSession(t *ToolSet) mcp.ToolHandlerFor[closeSessionIn, any] {
 }
 
 type listSessionsIn struct {
-	ProjectID string `json:"project_id" jsonschema:"ID of the project to list sessions for"`
+	ProjectID int64 `json:"project_id" jsonschema:"Numeric ID of the project to list sessions for"`
 }
 
 func listSessions(t *ToolSet) mcp.ToolHandlerFor[listSessionsIn, any] {
