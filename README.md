@@ -59,7 +59,7 @@ Important: the Admin UI has **no authentication**. Keep it on localhost.
 
 ## Admin UI
 
-![Admin UI screenshot](docs/admin-ui.png)
+![Admin UI screenshot](./docs/images/admin.png)
 
 ## Endpoints
 
