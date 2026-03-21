@@ -5,10 +5,10 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"fmt"
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 
 	"sshub-mcp/internal/domain"
@@ -23,15 +23,30 @@ func NewStore(db *sql.DB) *Store {
 	return &Store{db: db}
 }
 
+func scanInt64ID(sc interface {
+	Scan(dest ...any) error
+}) (int64, error) {
+	var id int64
+	if err := sc.Scan(&id); err != nil {
+		return 0, err
+	}
+	return id, nil
+}
+
+func int64SliceToAny(ids []int64) []any {
+	out := make([]any, len(ids))
+	for i, v := range ids {
+		out[i] = v
+	}
+	return out
+}
+
 func (s *Store) ListProjects(ctx context.Context, scope domain.AccessScope) ([]domain.Project, error) {
 	if len(scope.ProjectIDs) == 0 {
 		return nil, nil
 	}
 	q := `SELECT id, name, created_at, updated_at FROM projects WHERE id IN (` + placeholders(len(scope.ProjectIDs)) + `) ORDER BY name`
-	args := make([]any, len(scope.ProjectIDs))
-	for i, id := range scope.ProjectIDs {
-		args[i] = id
-	}
+	args := int64SliceToAny(scope.ProjectIDs)
 	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
@@ -40,7 +55,7 @@ func (s *Store) ListProjects(ctx context.Context, scope domain.AccessScope) ([]d
 	return scanProjects(rows)
 }
 
-func (s *Store) ListHosts(ctx context.Context, scope domain.AccessScope, projectID string) ([]domain.Host, error) {
+func (s *Store) ListHosts(ctx context.Context, scope domain.AccessScope, projectID int64) ([]domain.Host, error) {
 	if !scope.MayAccessProject(projectID) {
 		return nil, domain.ErrForbidden
 	}
@@ -61,7 +76,7 @@ func (s *Store) ListHosts(ctx context.Context, scope domain.AccessScope, project
 	return out, rows.Err()
 }
 
-func (s *Store) GetHostForSSH(ctx context.Context, scope domain.AccessScope, projectID, hostID string) (domain.Host, error) {
+func (s *Store) GetHostForSSH(ctx context.Context, scope domain.AccessScope, projectID int64, hostID int64) (domain.Host, error) {
 	if !scope.MayAccessProject(projectID) {
 		return domain.Host{}, domain.ErrForbidden
 	}
@@ -92,15 +107,37 @@ func (s *Store) CreateProject(ctx context.Context, name string) (domain.Project,
 		return domain.Project{}, domain.ErrValidation
 	}
 	now := time.Now().Unix()
-	id := uuid.NewString()
-	_, err := s.db.ExecContext(ctx, `INSERT INTO projects (id, name, created_at, updated_at) VALUES (?,?,?,?)`, id, name, now, now)
+
+	res, err := s.db.ExecContext(ctx, `INSERT INTO projects (name, created_at, updated_at) VALUES (?,?,?)`, name, now, now)
+	if err != nil {
+		return domain.Project{}, err
+	}
+	id, err := res.LastInsertId()
 	if err != nil {
 		return domain.Project{}, err
 	}
 	return domain.Project{ID: id, Name: name, CreatedAt: time.Unix(now, 0), UpdatedAt: time.Unix(now, 0)}, nil
 }
 
-func (s *Store) ListHostsByProject(ctx context.Context, projectID string) ([]domain.Host, error) {
+func (s *Store) DeleteProject(ctx context.Context, projectID int64) error {
+	if projectID <= 0 {
+		return domain.ErrValidation
+	}
+	res, err := s.db.ExecContext(ctx, `DELETE FROM projects WHERE id = ?`, projectID)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
+func (s *Store) ListHostsByProject(ctx context.Context, projectID int64) ([]domain.Host, error) {
 	const q = `SELECT id, project_id, name, address, port, username, auth_kind, created_at, updated_at FROM hosts WHERE project_id = ? ORDER BY name`
 	rows, err := s.db.QueryContext(ctx, q, projectID)
 	if err != nil {
@@ -118,8 +155,26 @@ func (s *Store) ListHostsByProject(ctx context.Context, projectID string) ([]dom
 	return out, rows.Err()
 }
 
-func (s *Store) CreateHost(ctx context.Context, projectID string, in ports.HostCreate) (domain.Host, error) {
-	if strings.TrimSpace(in.Name) == "" || strings.TrimSpace(in.Address) == "" || strings.TrimSpace(in.Username) == "" {
+func (s *Store) DeleteHost(ctx context.Context, projectID, hostID int64) error {
+	if projectID <= 0 || hostID <= 0 {
+		return domain.ErrValidation
+	}
+	res, err := s.db.ExecContext(ctx, `DELETE FROM hosts WHERE id = ? AND project_id = ?`, hostID, projectID)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
+func (s *Store) CreateHost(ctx context.Context, projectID int64, in ports.HostCreate) (domain.Host, error) {
+	if projectID <= 0 || strings.TrimSpace(in.Name) == "" || strings.TrimSpace(in.Address) == "" || strings.TrimSpace(in.Username) == "" {
 		return domain.Host{}, domain.ErrValidation
 	}
 	port := in.Port
@@ -135,6 +190,7 @@ func (s *Store) CreateHost(ctx context.Context, projectID string, in ports.HostC
 	default:
 		return domain.Host{}, domain.ErrValidation
 	}
+
 	var exists int
 	err := s.db.QueryRowContext(ctx, `SELECT 1 FROM projects WHERE id = ?`, projectID).Scan(&exists)
 	if err == sql.ErrNoRows {
@@ -143,12 +199,16 @@ func (s *Store) CreateHost(ctx context.Context, projectID string, in ports.HostC
 	if err != nil {
 		return domain.Host{}, err
 	}
+
 	now := time.Now().Unix()
-	id := uuid.NewString()
-	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO hosts (id, project_id, name, address, port, username, auth_kind, password, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)`,
-		id, projectID, strings.TrimSpace(in.Name), strings.TrimSpace(in.Address), port, strings.TrimSpace(in.Username), string(in.AuthKind), nullIfEmpty(in.Password), now, now,
+	res, err := s.db.ExecContext(ctx,
+		`INSERT INTO hosts (project_id, name, address, port, username, auth_kind, password, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)`,
+		projectID, strings.TrimSpace(in.Name), strings.TrimSpace(in.Address), port, strings.TrimSpace(in.Username), string(in.AuthKind), nullIfEmpty(in.Password), now, now,
 	)
+	if err != nil {
+		return domain.Host{}, err
+	}
+	id, err := res.LastInsertId()
 	if err != nil {
 		return domain.Host{}, err
 	}
@@ -158,12 +218,53 @@ func (s *Store) CreateHost(ctx context.Context, projectID string, in ports.HostC
 	}, nil
 }
 
-func (s *Store) IssueToken(ctx context.Context, label string, projectIDs []string) (string, domain.APIToken, error) {
+func (s *Store) ListTokensAll(ctx context.Context) ([]domain.APIToken, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, label, created_at, updated_at FROM api_tokens ORDER BY id DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []domain.APIToken
+	for rows.Next() {
+		var t domain.APIToken
+		var ca, ua int64
+		if err := rows.Scan(&t.ID, &t.Label, &ca, &ua); err != nil {
+			return nil, err
+		}
+		t.CreatedAt = time.Unix(ca, 0)
+		t.UpdatedAt = time.Unix(ua, 0)
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) DeleteToken(ctx context.Context, tokenID int64) error {
+	if tokenID <= 0 {
+		return domain.ErrValidation
+	}
+	res, err := s.db.ExecContext(ctx, `DELETE FROM api_tokens WHERE id = ?`, tokenID)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
+func (s *Store) IssueToken(ctx context.Context, label string, projectIDs []int64) (string, domain.APIToken, error) {
 	label = strings.TrimSpace(label)
 	if label == "" {
 		return "", domain.APIToken{}, domain.ErrValidation
 	}
 	for _, pid := range projectIDs {
+		if pid <= 0 {
+			return "", domain.APIToken{}, domain.ErrValidation
+		}
 		var one int
 		err := s.db.QueryRowContext(ctx, `SELECT 1 FROM projects WHERE id = ?`, pid).Scan(&one)
 		if err == sql.ErrNoRows {
@@ -173,25 +274,33 @@ func (s *Store) IssueToken(ctx context.Context, label string, projectIDs []strin
 			return "", domain.APIToken{}, err
 		}
 	}
-	id := uuid.NewString()
+
 	var rnd [16]byte
 	if _, err := rand.Read(rnd[:]); err != nil {
 		return "", domain.APIToken{}, err
 	}
-	plain := id + "." + hex.EncodeToString(rnd[:])
-	hash, err := bcrypt.GenerateFromPassword([]byte(plain), bcrypt.DefaultCost)
+	plainSuffix := hex.EncodeToString(rnd[:])
+	hash, err := bcrypt.GenerateFromPassword([]byte(plainSuffix), bcrypt.DefaultCost)
 	if err != nil {
 		return "", domain.APIToken{}, err
 	}
+
 	now := time.Now().Unix()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return "", domain.APIToken{}, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.ExecContext(ctx, `INSERT INTO api_tokens (id, label, secret_hash, created_at, updated_at) VALUES (?,?,?,?,?)`, id, label, string(hash), now, now); err != nil {
+
+	res, err := tx.ExecContext(ctx, `INSERT INTO api_tokens (label, secret_hash, created_at, updated_at) VALUES (?,?,?,?)`, label, string(hash), now, now)
+	if err != nil {
 		return "", domain.APIToken{}, err
 	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return "", domain.APIToken{}, err
+	}
+
 	for _, pid := range projectIDs {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO token_projects (token_id, project_id) VALUES (?,?)`, id, pid); err != nil {
 			return "", domain.APIToken{}, err
@@ -200,6 +309,8 @@ func (s *Store) IssueToken(ctx context.Context, label string, projectIDs []strin
 	if err := tx.Commit(); err != nil {
 		return "", domain.APIToken{}, err
 	}
+
+	plain := fmt.Sprintf("%d.%s", id, plainSuffix)
 	tok := domain.APIToken{ID: id, Label: label, CreatedAt: time.Unix(now, 0), UpdatedAt: time.Unix(now, 0)}
 	return plain, tok, nil
 }
@@ -210,7 +321,13 @@ func (s *Store) ResolveToken(ctx context.Context, plainSecret string) (domain.Ac
 	if dot <= 0 || dot >= len(plainSecret)-1 {
 		return domain.AccessScope{}, domain.ErrValidation
 	}
-	id := plainSecret[:dot]
+
+	var id int64
+	if _, err := fmt.Sscanf(plainSecret[:dot], "%d", &id); err != nil || id <= 0 {
+		return domain.AccessScope{}, domain.ErrValidation
+	}
+	suffix := plainSecret[dot+1:]
+
 	var hash string
 	err := s.db.QueryRowContext(ctx, `SELECT secret_hash FROM api_tokens WHERE id = ?`, id).Scan(&hash)
 	if err == sql.ErrNoRows {
@@ -219,17 +336,18 @@ func (s *Store) ResolveToken(ctx context.Context, plainSecret string) (domain.Ac
 	if err != nil {
 		return domain.AccessScope{}, err
 	}
-	if bcrypt.CompareHashAndPassword([]byte(hash), []byte(plainSecret)) != nil {
+	if bcrypt.CompareHashAndPassword([]byte(hash), []byte(suffix)) != nil {
 		return domain.AccessScope{}, domain.ErrNotFound
 	}
+
 	rows, err := s.db.QueryContext(ctx, `SELECT project_id FROM token_projects WHERE token_id = ?`, id)
 	if err != nil {
 		return domain.AccessScope{}, err
 	}
 	defer rows.Close()
-	var pids []string
+	var pids []int64
 	for rows.Next() {
-		var pid string
+		var pid int64
 		if err := rows.Scan(&pid); err != nil {
 			return domain.AccessScope{}, err
 		}

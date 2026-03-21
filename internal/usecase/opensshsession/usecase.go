@@ -2,7 +2,6 @@ package opensshsession
 
 import (
 	"context"
-	"strings"
 	"time"
 
 	"sshub-mcp/internal/domain"
@@ -16,10 +15,8 @@ type UseCase struct {
 	SessionTTL time.Duration
 }
 
-func (u *UseCase) Execute(ctx context.Context, projectID, hostID string) (domain.SSHSession, error) {
-	projectID = strings.TrimSpace(projectID)
-	hostID = strings.TrimSpace(hostID)
-	if projectID == "" || hostID == "" {
+func (u *UseCase) Execute(ctx context.Context, projectID, hostID int64) (domain.SSHSession, error) {
+	if projectID <= 0 || hostID <= 0 {
 		return domain.SSHSession{}, domain.ErrValidation
 	}
 	scope := scopectx.From(ctx)

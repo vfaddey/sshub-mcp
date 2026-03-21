@@ -33,6 +33,7 @@ type liveSession struct {
 }
 
 const mcpPwdMarker = "\n__MCP_PWD__\n"
+const mcpPwdMarkerAlt = "__MCP_PWD__"
 
 func New() *Gateway {
 	g := &Gateway{sessions: make(map[string]*liveSession)}
@@ -40,7 +41,7 @@ func New() *Gateway {
 	return g
 }
 
-func (g *Gateway) OpenSession(ctx context.Context, host domain.Host, projectID string, ttl time.Duration) (domain.SSHSession, error) {
+func (g *Gateway) OpenSession(ctx context.Context, host domain.Host, projectID int64, ttl time.Duration) (domain.SSHSession, error) {
 	addr := fmt.Sprintf("%s:%d", host.Address, host.Port)
 	if host.AuthKind == domain.HostAuthAgent && !sshAgentUsable() {
 		return domain.SSHSession{}, domain.ErrValidation
@@ -125,10 +126,13 @@ func (g *Gateway) Exec(ctx context.Context, sessionID, command string) (string, 
 		return "", err
 	}
 	defer sess.Close()
+
+	var stdoutBuf bytes.Buffer
+	var stderrBuf bytes.Buffer
+	sess.Stdout = &stdoutBuf
+	sess.Stderr = &stderrBuf
 	sess.Stdin = strings.NewReader(script)
-	var outBuf bytes.Buffer
-	sess.Stdout = &outBuf
-	sess.Stderr = &outBuf
+
 	done := make(chan struct{})
 	go func() {
 		select {
@@ -137,26 +141,40 @@ func (g *Gateway) Exec(ctx context.Context, sessionID, command string) (string, 
 		case <-done:
 		}
 	}()
+
 	runErr := sess.Run("/bin/bash -s")
 	close(done)
-	raw := outBuf.Bytes()
-	body, newPwd, hasPwd := splitMcpPwdOutput(raw)
+
+	// Preserve user-visible output: return stdout exactly as a terminal would.
+	out := stdoutBuf.String()
+
+	// State is emitted on stderr and must not pollute user output.
+	_, newPwd, hasPwd := splitMcpPwdOutput(stderrBuf.Bytes())
 	if hasPwd {
 		ls.stateMu.Lock()
 		ls.cwd = newPwd
 		ls.stateMu.Unlock()
 	}
 	appendExportsFromCommand(ls, command)
+
 	if runErr != nil {
 		if ctx.Err() != nil {
-			return body, ctx.Err()
+			return out, ctx.Err()
 		}
-		if body != "" {
-			return body, fmt.Errorf("%w: %s", runErr, body)
+		errBody, _, _ := splitMcpPwdOutput(stderrBuf.Bytes())
+		errBody = strings.TrimSpace(errBody)
+		if errBody != "" {
+			if out != "" {
+				out = strings.TrimRight(out, "\n") + "\n" + errBody + "\n"
+			} else {
+				out = errBody + "\n"
+			}
+			return out, fmt.Errorf("%w: %s", runErr, errBody)
 		}
-		return "", runErr
+		return out, runErr
 	}
-	return body, nil
+
+	return out, nil
 }
 
 func (g *Gateway) Close(ctx context.Context, sessionID string) error {
@@ -172,7 +190,7 @@ func (g *Gateway) Close(ctx context.Context, sessionID string) error {
 	return cl.Close()
 }
 
-func (g *Gateway) ListOpenByProject(ctx context.Context, projectID string) ([]domain.SSHSession, error) {
+func (g *Gateway) ListOpenByProject(ctx context.Context, projectID int64) ([]domain.SSHSession, error) {
 	now := time.Now()
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -239,27 +257,44 @@ func buildStatefulScript(storedCwd string, envLines []string, cmd string) string
 	}
 	b.WriteString(cmd)
 	b.WriteString("\n")
-	b.WriteString("printf '\\n__MCP_PWD__\\n'\n")
-	b.WriteString("pwd -P\n")
+
+	// Emit state marker on stderr so stdout remains purely user-visible output.
+	b.WriteString("printf '\\n__MCP_PWD__\\n' 1>&2\n")
+	b.WriteString("pwd -P 1>&2\n")
+	b.WriteString("printf '\\n' 1>&2\n")
+
 	return b.String()
 }
 
 func splitMcpPwdOutput(raw []byte) (body string, pwd string, ok bool) {
 	s := string(raw)
+
 	i := strings.LastIndex(s, mcpPwdMarker)
+	markerLen := len(mcpPwdMarker)
 	if i < 0 {
-		return strings.TrimRight(strings.TrimSpace(s), "\n"), "", false
+		i = strings.LastIndex(s, mcpPwdMarkerAlt)
+		markerLen = len(mcpPwdMarkerAlt)
 	}
-	body = strings.TrimRight(strings.TrimSuffix(s[:i], "\n"), "\n")
-	rest := strings.TrimSpace(s[i+len(mcpPwdMarker):])
+
+	if i < 0 {
+		return strings.TrimSpace(s), "", false
+	}
+
+	body = strings.TrimRight(s[:i], "\r\n")
+
+	rest := s[i+markerLen:]
+	rest = strings.TrimLeft(rest, "\r\n")
 	if rest == "" {
 		return body, "", false
 	}
+
 	firstLine, _, _ := strings.Cut(rest, "\n")
-	pwd = strings.TrimSpace(firstLine)
-	if pwd == "" {
+	firstLine = strings.TrimSpace(strings.TrimRight(firstLine, "\r"))
+	if firstLine == "" {
 		return body, "", false
 	}
+
+	pwd = firstLine
 	return body, pwd, true
 }
 

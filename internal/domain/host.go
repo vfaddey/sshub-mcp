@@ -3,8 +3,8 @@ package domain
 import "time"
 
 type Host struct {
-	ID        string       `json:"id"`
-	ProjectID string       `json:"project_id"`
+	ID        int64        `json:"id"`
+	ProjectID int64        `json:"project_id"`
 	Name      string       `json:"name"`
 	Address   string       `json:"address"`
 	Port      int          `json:"port"`

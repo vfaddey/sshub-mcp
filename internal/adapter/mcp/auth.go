@@ -28,7 +28,7 @@ func authMiddleware(next http.Handler, cfg AuthConfig) http.Handler {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		if scope.TokenID == "" {
+		if scope.TokenID <= 0 {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}

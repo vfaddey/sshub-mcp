@@ -2,7 +2,6 @@ package listsshsessions
 
 import (
 	"context"
-	"strings"
 
 	"sshub-mcp/internal/domain"
 	"sshub-mcp/internal/domain/ports"
@@ -13,9 +12,8 @@ type UseCase struct {
 	Gateway ports.SSHGateway
 }
 
-func (u *UseCase) Execute(ctx context.Context, projectID string) ([]domain.SSHSession, error) {
-	projectID = strings.TrimSpace(projectID)
-	if projectID == "" {
+func (u *UseCase) Execute(ctx context.Context, projectID int64) ([]domain.SSHSession, error) {
+	if projectID <= 0 {
 		return nil, domain.ErrValidation
 	}
 	scope := scopectx.From(ctx)
